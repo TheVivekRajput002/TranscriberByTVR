@@ -558,6 +558,20 @@
             let watchdogTimer = null; // detects stuck sessions
             let lastResultTime = 0;   // tracks last onresult event
 
+            // Exponential backoff restart — never gives up
+            function scheduleRestart(delay) {
+                setTimeout(() => {
+                    if (!isListening) return;
+                    try {
+                        createRecognition();
+                        recognition.start();
+                    } catch (_) {
+                        // Retry with doubling delay, capped at 10s
+                        scheduleRestart(Math.min(delay * 2, 10000));
+                    }
+                }, delay);
+            }
+
             function createRecognition() {
                 recognition = new SpeechRecognition();
                 recognition.lang = langSelect.value;
@@ -572,8 +586,6 @@
                     box.classList.add('active');
                     placeholder.style.display = 'none';
                     bars.forEach(b => b.classList.add('active'));
-                    // Only open a new audio stream if one isn't already running
-                    if (!micStream) startAudioVisualizer();
                     // Proactively restart every 9s before Chrome's random timeout
                     clearTimeout(sessionTimer);
                     sessionTimer = setTimeout(() => {
@@ -616,23 +628,7 @@
                 recognition.onend = () => {
                     clearTimeout(sessionTimer);
                     if (isListening && continuousToggle.checked) {
-                        setTimeout(() => {
-                            if (!isListening) return;
-                            try {
-                                createRecognition();
-                                recognition.start();
-                            } catch (_) {
-                                setTimeout(() => {
-                                    if (!isListening) return;
-                                    try {
-                                        createRecognition();
-                                        recognition.start();
-                                    } catch (_) {
-                                        setStatus('listening', 'Recovering…');
-                                    }
-                                }, 800);
-                            }
-                        }, 150);
+                        scheduleRestart(150);
                     } else {
                         stopListening();
                     }
@@ -690,43 +686,19 @@
             }
 
             function startAudioVisualizer() {
-                try {
-                    navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
-                        micStream = stream;
-                        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                        analyser = audioCtx.createAnalyser();
-                        analyser.fftSize = 64;
-                        const src = audioCtx.createMediaStreamSource(stream);
-                        src.connect(analyser);
-                        dataArray = new Uint8Array(analyser.frequencyBinCount);
-                        drawBars();
-                    }).catch(() => {
-                        // fallback: just animate
-                        animateBarsDefault();
-                    });
-                } catch (e) {
-                    animateBarsDefault();
-                }
+                // Pure CSS animation — no getUserMedia needed.
+                // This avoids repeated permission prompts on every restart.
+                // The .bar.active CSS keyframe handles the wave animation.
             }
 
-            function drawBars() {
-                if (!isListening) return;
-                analyser.getByteFrequencyData(dataArray);
-                bars.forEach((bar, i) => {
-                    const val = dataArray[i % dataArray.length] || 0;
-                    const h = Math.max(4, (val / 255) * 52);
-                    bar.style.height = h + 'px';
-                });
-                animFrame = requestAnimationFrame(drawBars);
-            }
-
-            function animateBarsDefault() {
-                // CSS handles animation via keyframes
-            }
+            function drawBars() { }
+            function animateBarsDefault() { }
 
             function stopAudioVisualizer() {
                 cancelAnimationFrame(animFrame);
-                if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+                // micStream is now managed by the browser (speech recognition)
+                // so we don't stop tracks here to avoid permission re-prompts
+                micStream = null;
                 if (audioCtx) { audioCtx.close(); audioCtx = null; }
             }
 
