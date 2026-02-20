@@ -552,11 +552,12 @@
             let recognition;
             let isListening = false;
             let fullTranscript = '';
+            let currentInterim = ''; // words spoken but not yet finalized
             let animFrame;
             let audioCtx, analyser, micStream, dataArray;
-            let sessionTimer = null;  // proactive restart every 9s
-            let watchdogTimer = null; // detects stuck sessions
-            let lastResultTime = 0;   // tracks last onresult event
+            let sessionTimer = null;
+            let watchdogTimer = null;
+            let lastResultTime = 0;
 
             // Exponential backoff restart — never gives up
             function scheduleRestart(delay) {
@@ -597,19 +598,19 @@
 
                 recognition.onresult = (e) => {
                     lastResultTime = Date.now();
-                    let interim = '';
+                    currentInterim = '';
                     for (let i = e.resultIndex; i < e.results.length; i++) {
                         const t = e.results[i][0].transcript;
                         if (e.results[i].isFinal) {
                             fullTranscript += t + ' ';
+                            currentInterim = '';
                         } else {
-                            interim += t;
+                            currentInterim += t;
                         }
                     }
                     finalText.textContent = fullTranscript;
-                    interimText.textContent = interimToggle.checked ? interim : '';
+                    interimText.textContent = interimToggle.checked ? currentInterim : '';
                     updateCounts();
-                    // Only auto-scroll if user is near the bottom
                     const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
                     if (nearBottom) box.scrollTop = box.scrollHeight;
                 };
@@ -627,6 +628,15 @@
 
                 recognition.onend = () => {
                     clearTimeout(sessionTimer);
+                    // Commit any unfinished interim words before restarting
+                    // so words spoken mid-sentence are never lost
+                    if (currentInterim.trim()) {
+                        fullTranscript += currentInterim + ' ';
+                        currentInterim = '';
+                        finalText.textContent = fullTranscript;
+                        interimText.textContent = '';
+                        updateCounts();
+                    }
                     if (isListening && continuousToggle.checked) {
                         scheduleRestart(150);
                     } else {
