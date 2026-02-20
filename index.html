@@ -1,0 +1,1218 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Transcriber</title>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Syne:wght@400;700;800&display=swap"
+        rel="stylesheet">
+    <style>
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        :root {
+            --bg: #0a0a0f;
+            --surface: #111118;
+            --surface2: #16161f;
+            --border: #1e1e2e;
+            --accent: #7fff6e;
+            --accent2: #4af0dc;
+            --accent3: #c084fc;
+            --text: #e8e8f0;
+            --muted: #5a5a7a;
+            --danger: #ff5f6e;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Syne', sans-serif;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+            overflow-x: hidden;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background-image:
+                linear-gradient(rgba(127, 255, 110, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(127, 255, 110, 0.03) 1px, transparent 1px);
+            background-size: 40px 40px;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .container {
+            position: relative;
+            z-index: 1;
+            width: 100%;
+            max-width: 780px;
+        }
+
+        header {
+            margin-bottom: 2.5rem;
+            display: flex;
+            align-items: baseline;
+            gap: 1rem;
+        }
+
+        h1 {
+            font-size: clamp(2rem, 5vw, 3.5rem);
+            font-weight: 800;
+            letter-spacing: -0.03em;
+            line-height: 1;
+        }
+
+        h1 span {
+            color: var(--accent);
+        }
+
+        .tagline {
+            font-family: 'Space Mono', monospace;
+            font-size: 0.7rem;
+            color: var(--muted);
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            margin-top: 0.4rem;
+        }
+
+        /* Status bar */
+        .status-bar {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 1rem;
+            font-family: 'Space Mono', monospace;
+            font-size: 0.75rem;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--muted);
+            transition: all 0.3s;
+            flex-shrink: 0;
+        }
+
+        .status-dot.listening {
+            background: var(--accent);
+            box-shadow: 0 0 0 3px rgba(127, 255, 110, 0.2);
+            animation: pulse 1.5s infinite;
+        }
+
+        .status-dot.error {
+            background: var(--danger);
+            box-shadow: 0 0 0 3px rgba(255, 95, 110, 0.2);
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                transform: scale(1);
+                opacity: 1;
+            }
+
+            50% {
+                transform: scale(1.3);
+                opacity: 0.7;
+            }
+        }
+
+        /* Transcript area */
+        .transcript-box {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            min-height: 280px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: 'Space Mono', monospace;
+            font-size: 0.95rem;
+            line-height: 1.8;
+            position: relative;
+            transition: border-color 0.3s;
+        }
+
+        .transcript-box.active {
+            border-color: rgba(127, 255, 110, 0.3);
+            box-shadow: 0 0 0 1px rgba(127, 255, 110, 0.08) inset;
+        }
+
+        .transcript-box::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .transcript-box::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .transcript-box::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 2px;
+        }
+
+        .placeholder {
+            color: var(--muted);
+            font-style: italic;
+            font-size: 0.85rem;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            width: 80%;
+            line-height: 1.6;
+            pointer-events: none;
+        }
+
+        #final-text {
+            color: var(--text);
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        #interim-text {
+            color: var(--muted);
+            font-style: italic;
+        }
+
+        /* Waveform visualizer */
+        .visualizer-wrap {
+            margin: 1.25rem 0;
+            height: 56px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 3px;
+        }
+
+        .bar {
+            width: 4px;
+            border-radius: 2px;
+            background: var(--accent);
+            height: 4px;
+            transition: height 0.1s ease;
+            opacity: 0.4;
+        }
+
+        .bar.active {
+            opacity: 1;
+            animation: wave 1s ease-in-out infinite;
+        }
+
+        @keyframes wave {
+
+            0%,
+            100% {
+                transform: scaleY(0.3);
+            }
+
+            50% {
+                transform: scaleY(1);
+            }
+        }
+
+        /* Controls */
+        .controls {
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+            margin-top: 1.25rem;
+        }
+
+        .btn {
+            font-family: 'Syne', sans-serif;
+            font-size: 0.85rem;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            padding: 0.7rem 1.5rem;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: #0a0a0f;
+        }
+
+        .btn-primary:hover {
+            background: #9affed;
+            transform: translateY(-1px);
+        }
+
+        .btn-stop {
+            background: rgba(255, 95, 110, 0.15);
+            color: var(--danger);
+            border: 1px solid rgba(255, 95, 110, 0.3);
+        }
+
+        .btn-stop:hover {
+            background: rgba(255, 95, 110, 0.25);
+        }
+
+        .btn-clear {
+            background: transparent;
+            color: var(--muted);
+            border: 1px solid var(--border);
+        }
+
+        .btn-clear:hover {
+            color: var(--text);
+            border-color: var(--muted);
+        }
+
+        .btn-copy {
+            background: rgba(74, 240, 220, 0.1);
+            color: var(--accent2);
+            border: 1px solid rgba(74, 240, 220, 0.2);
+            margin-left: auto;
+        }
+
+        .btn-copy:hover {
+            background: rgba(74, 240, 220, 0.2);
+        }
+
+        .btn:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* Settings row */
+        .settings {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            margin-top: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .setting-group {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-family: 'Space Mono', monospace;
+            font-size: 0.72rem;
+            color: var(--muted);
+        }
+
+        select {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            font-family: 'Space Mono', monospace;
+            font-size: 0.72rem;
+            padding: 0.3rem 0.6rem;
+            cursor: pointer;
+            outline: none;
+            max-width: 200px;
+        }
+
+        select:focus {
+            border-color: var(--accent);
+        }
+
+        .toggle {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+
+        .toggle input[type=checkbox] {
+            appearance: none;
+            width: 32px;
+            height: 18px;
+            background: var(--border);
+            border-radius: 9px;
+            cursor: pointer;
+            position: relative;
+            transition: background 0.2s;
+        }
+
+        .toggle input[type=checkbox]:checked {
+            background: var(--accent);
+        }
+
+        .toggle input[type=checkbox]::after {
+            content: '';
+            position: absolute;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: white;
+            top: 2px;
+            left: 2px;
+            transition: left 0.2s;
+        }
+
+        .toggle input[type=checkbox]:checked::after {
+            left: 16px;
+        }
+
+        /* Word count */
+        .meta {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 0.6rem;
+            font-family: 'Space Mono', monospace;
+            font-size: 0.68rem;
+            color: var(--muted);
+        }
+
+        /* Toast */
+        .toast {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            background: var(--accent);
+            color: #0a0a0f;
+            font-family: 'Space Mono', monospace;
+            font-size: 0.78rem;
+            font-weight: 700;
+            padding: 0.6rem 1.2rem;
+            border-radius: 6px;
+            transform: translateY(100px);
+            opacity: 0;
+            transition: all 0.3s;
+            z-index: 100;
+        }
+
+        .toast.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+
+        /* Not supported */
+        .not-supported {
+            text-align: center;
+            color: var(--danger);
+            font-family: 'Space Mono', monospace;
+            font-size: 0.85rem;
+            padding: 2rem;
+            border: 1px solid rgba(255, 95, 110, 0.2);
+            border-radius: 12px;
+            background: rgba(255, 95, 110, 0.05);
+        }
+
+        /* ── Audio Device Panel ── */
+        .device-panel {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1rem 1.25rem;
+            margin-top: 1.25rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .device-label {
+            font-family: 'Space Mono', monospace;
+            font-size: 0.72rem;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            white-space: nowrap;
+        }
+
+        #device-select {
+            flex: 1;
+            min-width: 160px;
+            max-width: 100%;
+        }
+
+        /* Level meter */
+        .level-wrap {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            flex: 1;
+            min-width: 120px;
+        }
+
+        .level-bar-bg {
+            flex: 1;
+            height: 8px;
+            background: var(--border);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .level-bar-fill {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, var(--accent), var(--accent2));
+            border-radius: 4px;
+            transition: width 0.08s ease;
+        }
+
+        .level-label {
+            font-family: 'Space Mono', monospace;
+            font-size: 0.65rem;
+            color: var(--muted);
+            white-space: nowrap;
+        }
+
+        /* ── Setup Guide Panel ── */
+        .guide-panel {
+            margin-top: 1.25rem;
+            border: 1px solid rgba(192, 132, 252, 0.2);
+            border-radius: 12px;
+            background: rgba(192, 132, 252, 0.04);
+            overflow: hidden;
+        }
+
+        .guide-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            padding: 0.9rem 1.25rem;
+            cursor: pointer;
+            user-select: none;
+            transition: background 0.2s;
+        }
+
+        .guide-header:hover {
+            background: rgba(192, 132, 252, 0.06);
+        }
+
+        .guide-title {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: var(--accent3);
+            letter-spacing: 0.02em;
+        }
+
+        .guide-chevron {
+            font-size: 0.75rem;
+            color: var(--muted);
+            transition: transform 0.3s;
+        }
+
+        .guide-body {
+            display: none;
+            padding: 0 1.25rem 1.25rem;
+        }
+
+        .guide-body.open {
+            display: block;
+        }
+
+        .guide-panel[open] .guide-chevron {
+            transform: rotate(180deg);
+        }
+
+        /* Tab switcher */
+        .guide-tabs {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .guide-tab {
+            font-family: 'Space Mono', monospace;
+            font-size: 0.72rem;
+            font-weight: 700;
+            padding: 0.4rem 0.9rem;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            background: transparent;
+            color: var(--muted);
+            cursor: pointer;
+            transition: all 0.2s;
+            letter-spacing: 0.05em;
+        }
+
+        .guide-tab.active {
+            background: rgba(192, 132, 252, 0.15);
+            border-color: rgba(192, 132, 252, 0.4);
+            color: var(--accent3);
+        }
+
+        .guide-content {
+            display: none;
+        }
+
+        .guide-content.active {
+            display: block;
+        }
+
+        .guide-intro {
+            font-family: 'Space Mono', monospace;
+            font-size: 0.75rem;
+            color: var(--muted);
+            line-height: 1.7;
+            margin-bottom: 1rem;
+        }
+
+        .guide-intro a {
+            color: var(--accent2);
+            text-decoration: none;
+        }
+
+        .guide-intro a:hover {
+            text-decoration: underline;
+        }
+
+        .steps {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 0.6rem;
+        }
+
+        .step {
+            display: flex;
+            gap: 0.75rem;
+            align-items: flex-start;
+        }
+
+        .step-num {
+            flex-shrink: 0;
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            background: rgba(192, 132, 252, 0.15);
+            border: 1px solid rgba(192, 132, 252, 0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Space Mono', monospace;
+            font-size: 0.65rem;
+            font-weight: 700;
+            color: var(--accent3);
+            margin-top: 1px;
+        }
+
+        .step-text {
+            font-family: 'Space Mono', monospace;
+            font-size: 0.75rem;
+            color: var(--text);
+            line-height: 1.6;
+        }
+
+        .step-text code {
+            background: rgba(255, 255, 255, 0.07);
+            border-radius: 3px;
+            padding: 0.1em 0.35em;
+            color: var(--accent2);
+            font-size: 0.9em;
+        }
+
+        .guide-note {
+            margin-top: 0.9rem;
+            padding: 0.7rem 0.9rem;
+            background: rgba(127, 255, 110, 0.06);
+            border: 1px solid rgba(127, 255, 110, 0.15);
+            border-radius: 8px;
+            font-family: 'Space Mono', monospace;
+            font-size: 0.72rem;
+            color: var(--accent);
+            line-height: 1.6;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <header>
+            <div>
+                <h1>VOICE<span>.</span>SCRIBE</h1>
+                <p class="tagline">// Live Speech Transcription</p>
+            </div>
+        </header>
+
+        <div id="app">
+            <div class="status-bar">
+                <div class="status-dot" id="status-dot"></div>
+                <span id="status-text">Ready to listen</span>
+            </div>
+
+            <div class="transcript-box" id="transcript-box">
+                <p class="placeholder" id="placeholder">Press <strong>Start Listening</strong> and begin
+                    speaking.<br>Your words will appear here in real time.</p>
+                <span id="final-text"></span><span id="interim-text"></span>
+            </div>
+
+            <div class="meta">
+                <span id="word-count">0 words</span>
+                <span id="char-count">0 chars</span>
+            </div>
+
+            <!-- Waveform -->
+            <div class="visualizer-wrap" id="visualizer"></div>
+
+            <!-- Controls -->
+            <div class="controls">
+                <button class="btn btn-primary" id="btn-start">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                        <circle cx="12" cy="12" r="6" />
+                    </svg>
+                    Start Listening
+                </button>
+                <button class="btn btn-stop" id="btn-stop" disabled>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                        <rect x="6" y="6" width="12" height="12" rx="2" />
+                    </svg>
+                    Stop
+                </button>
+                <button class="btn btn-clear" id="btn-clear">Clear</button>
+                <button class="btn btn-copy" id="btn-copy">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="9" y="9" width="13" height="13" rx="2" />
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                    </svg>
+                    Copy Text
+                </button>
+            </div>
+
+            <!-- Settings -->
+            <div class="settings">
+                <div class="setting-group">
+                    <span>Language:</span>
+                    <select id="lang-select">
+                        <option value="en-US">English (US)</option>
+                        <option value="en-GB">English (UK)</option>
+                        <option value="en-IN">English (India)</option>
+                        <option value="hi-IN">Hindi / Hinglish ★ Best for Hindi+English mix</option>
+                        <option value="es-ES">Spanish</option>
+                        <option value="fr-FR">French</option>
+                        <option value="de-DE">German</option>
+                        <option value="ja-JP">Japanese</option>
+                        <option value="zh-CN">Chinese (Simplified)</option>
+                        <option value="ar-SA">Arabic</option>
+                        <option value="pt-BR">Portuguese (BR)</option>
+                    </select>
+                </div>
+                <div class="setting-group toggle">
+                    <input type="checkbox" id="continuous-toggle" checked>
+                    <label for="continuous-toggle">Continuous mode</label>
+                </div>
+                <div class="setting-group toggle">
+                    <input type="checkbox" id="interim-toggle" checked>
+                    <label for="interim-toggle">Show interim</label>
+                </div>
+            </div>
+
+            <!-- Audio Device Selector -->
+            <div class="device-panel">
+                <span class="device-label">🎙 Audio Input:</span>
+                <select id="device-select">
+                    <option value="">Loading devices…</option>
+                </select>
+                <button class="btn btn-clear" id="btn-test-audio" style="padding:0.4rem 0.9rem;font-size:0.75rem;">▶
+                    Test</button>
+                <div class="level-wrap">
+                    <span class="level-label">Level</span>
+                    <div class="level-bar-bg">
+                        <div class="level-bar-fill" id="level-fill"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Setup Guide -->
+            <div class="guide-panel" id="guide-panel">
+                <div class="guide-header" id="guide-toggle">
+                    <div class="guide-title">
+                        🎵 Transcribe System Audio (VLC, YouTube, etc.)
+                    </div>
+                    <span class="guide-chevron" id="guide-chevron">▼</span>
+                </div>
+                <div class="guide-body" id="guide-body">
+                    <div class="guide-tabs">
+                        <button class="guide-tab active" data-tab="stereo">Option 1 — Stereo Mix (Free,
+                            Built-in)</button>
+                        <button class="guide-tab" data-tab="vbaudio">Option 2 — VB-Audio (More Reliable)</button>
+                    </div>
+
+                    <!-- Stereo Mix Tab -->
+                    <div class="guide-content active" id="tab-stereo">
+                        <p class="guide-intro">
+                            Stereo Mix is a hidden Windows feature that captures everything your PC plays — enabling
+                            this makes the browser transcribe VLC, YouTube, or any app's audio.
+                        </p>
+                        <ol class="steps">
+                            <li class="step">
+                                <div class="step-num">1</div>
+                                <div class="step-text">Right-click the 🔊 speaker icon in the taskbar → click
+                                    <code>Sound settings</code>
+                                </div>
+                            </li>
+                            <li class="step">
+                                <div class="step-num">2</div>
+                                <div class="step-text">Scroll down → click <code>More sound settings</code> to open the
+                                    classic Sound panel</div>
+                            </li>
+                            <li class="step">
+                                <div class="step-num">3</div>
+                                <div class="step-text">Go to the <code>Recording</code> tab → right-click empty space →
+                                    tick <code>Show Disabled Devices</code></div>
+                            </li>
+                            <li class="step">
+                                <div class="step-num">4</div>
+                                <div class="step-text">Right-click <code>Stereo Mix</code> → <code>Enable</code> → then
+                                    right-click again → <code>Set as Default Device</code></div>
+                            </li>
+                            <li class="step">
+                                <div class="step-num">5</div>
+                                <div class="step-text">Play your VLC video, then come back here, refresh this page (F5),
+                                    and click <code>Start Listening</code></div>
+                            </li>
+                        </ol>
+                        <div class="guide-note">
+                            ✅ After setup: play VLC audio and watch the <strong>Level</strong> meter above react — that
+                            confirms it's working before you start transcribing.
+                        </div>
+                    </div>
+
+                    <!-- VB-Audio Tab -->
+                    <div class="guide-content" id="tab-vbaudio">
+                        <p class="guide-intro">
+                            VB-Audio Virtual Cable creates a virtual microphone that captures system audio. More
+                            reliable than Stereo Mix and works even if Stereo Mix isn't available on your PC. Download
+                            free from <a href="https://vb-audio.com/Cable/" target="_blank">vb-audio.com/Cable</a>.
+                        </p>
+                        <ol class="steps">
+                            <li class="step">
+                                <div class="step-num">1</div>
+                                <div class="step-text">Download <code>VB-Cable</code> from <a
+                                        href="https://vb-audio.com/Cable/" target="_blank"
+                                        style="color:var(--accent2);">vb-audio.com/Cable</a> → extract → run
+                                    <code>VBCABLE_Setup_x64.exe</code> as Administrator → Install Driver
+                                </div>
+                            </li>
+                            <li class="step">
+                                <div class="step-num">2</div>
+                                <div class="step-text"><strong>Restart your PC</strong> after installation</div>
+                            </li>
+                            <li class="step">
+                                <div class="step-num">3</div>
+                                <div class="step-text">In VLC: go to <code>Audio</code> → <code>Audio Device</code> →
+                                    select <code>CABLE Input (VB-Audio Virtual Cable)</code></div>
+                            </li>
+                            <li class="step">
+                                <div class="step-num">4</div>
+                                <div class="step-text">Right-click 🔊 in taskbar → Sound settings →
+                                    <code>More sound settings</code> → <code>Recording</code> tab → right-click
+                                    <code>CABLE Output</code> → <code>Set as Default Device</code>
+                                </div>
+                            </li>
+                            <li class="step">
+                                <div class="step-num">5</div>
+                                <div class="step-text">Come back here, refresh (F5), play VLC, watch the
+                                    <code>Level</code> meter react, then click <code>Start Listening</code>
+                                </div>
+                            </li>
+                        </ol>
+                        <div class="guide-note">
+                            ✅ Tip: VB-Audio lets you continue hearing the audio through your speakers — go to VLC's
+                            Audio settings and also enable your normal speaker as a secondary output.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        // Check support
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+        if (!SpeechRecognition) {
+            document.getElementById('app').innerHTML = `
+      <div class="not-supported">
+        ⚠️ Speech Recognition not supported in this browser.<br><br>
+        Please use <strong>Google Chrome</strong> or <strong>Microsoft Edge</strong> for best results.
+      </div>`;
+        } else {
+            initApp();
+        }
+
+        function initApp() {
+            const btnStart = document.getElementById('btn-start');
+            const btnStop = document.getElementById('btn-stop');
+            const btnClear = document.getElementById('btn-clear');
+            const btnCopy = document.getElementById('btn-copy');
+            const finalText = document.getElementById('final-text');
+            const interimText = document.getElementById('interim-text');
+            const statusDot = document.getElementById('status-dot');
+            const statusTxt = document.getElementById('status-text');
+            const placeholder = document.getElementById('placeholder');
+            const box = document.getElementById('transcript-box');
+            const langSelect = document.getElementById('lang-select');
+            const continuousToggle = document.getElementById('continuous-toggle');
+            const interimToggle = document.getElementById('interim-toggle');
+            const wordCount = document.getElementById('word-count');
+            const charCount = document.getElementById('char-count');
+            const toast = document.getElementById('toast');
+            const visualizer = document.getElementById('visualizer');
+            const deviceSelect = document.getElementById('device-select');
+            const levelFill = document.getElementById('level-fill');
+
+            // ── Waveform bars ──
+            const BAR_COUNT = 28;
+            const bars = [];
+            for (let i = 0; i < BAR_COUNT; i++) {
+                const bar = document.createElement('div');
+                bar.className = 'bar';
+                bar.style.animationDelay = `${(i / BAR_COUNT) * 1}s`;
+                visualizer.appendChild(bar);
+                bars.push(bar);
+            }
+
+            let recognition;
+            let isListening = false;
+            let fullTranscript = '';
+            let animFrame;
+            let audioCtx, analyser, micStream, dataArray;
+            let sessionTimer = null;  // proactive restart every 9s
+            let watchdogTimer = null; // detects stuck sessions
+            let lastResultTime = 0;   // tracks last onresult event
+
+            // ── Level meter stream (separate from recognition) ──
+            let levelCtx, levelAnalyser, levelStream, levelFrame, levelArray;
+
+            // ── Populate device list (no permission requested on load) ──
+            async function populateDevices() {
+                try {
+                    const devices = await navigator.mediaDevices.enumerateDevices();
+                    const audioInputs = devices.filter(d => d.kind === 'audioinput');
+                    deviceSelect.innerHTML = '';
+                    let count = 1;
+                    audioInputs.forEach(d => {
+                        const opt = document.createElement('option');
+                        opt.value = d.deviceId;
+                        // Labels are empty until permission is granted; show generic names
+                        opt.textContent = d.label || `Microphone ${count++}`;
+                        deviceSelect.appendChild(opt);
+                    });
+                    if (audioInputs.length === 0) {
+                        deviceSelect.innerHTML = '<option value="">No devices found</option>';
+                    }
+                } catch (err) {
+                    deviceSelect.innerHTML = '<option value="">Error loading devices</option>';
+                }
+            }
+
+            // After permission is granted, refresh device labels with real names
+            async function refreshDeviceLabels() {
+                try {
+                    const devices = await navigator.mediaDevices.enumerateDevices();
+                    const audioInputs = devices.filter(d => d.kind === 'audioinput');
+                    const currentVal = deviceSelect.value;
+                    deviceSelect.innerHTML = '';
+                    let count = 1;
+                    audioInputs.forEach(d => {
+                        const opt = document.createElement('option');
+                        opt.value = d.deviceId;
+                        opt.textContent = d.label || `Microphone ${count++}`;
+                        if (d.deviceId === currentVal) opt.selected = true;
+                        deviceSelect.appendChild(opt);
+                    });
+                } catch (_) { }
+            }
+
+            // ── Level meter ──
+            function startLevelMeter() {
+                stopLevelMeter();
+                const deviceId = deviceSelect.value;
+                const constraints = { audio: deviceId ? { deviceId: { exact: deviceId } } : true };
+
+                navigator.mediaDevices.getUserMedia(constraints).then(stream => {
+                    levelStream = stream;
+                    levelCtx = new (window.AudioContext || window.webkitAudioContext)();
+                    levelAnalyser = levelCtx.createAnalyser();
+                    levelAnalyser.fftSize = 256;
+                    const src = levelCtx.createMediaStreamSource(stream);
+                    src.connect(levelAnalyser);
+                    levelArray = new Uint8Array(levelAnalyser.frequencyBinCount);
+                    drawLevel();
+                }).catch(() => { });
+            }
+
+            function drawLevel() {
+                levelFrame = requestAnimationFrame(drawLevel);
+                levelAnalyser.getByteFrequencyData(levelArray);
+                const avg = levelArray.reduce((s, v) => s + v, 0) / levelArray.length;
+                const pct = Math.min(100, (avg / 128) * 100 * 2.5);
+                levelFill.style.width = pct + '%';
+                // Color shift: green → teal → purple at high levels
+                if (pct > 70) {
+                    levelFill.style.background = 'linear-gradient(90deg, var(--accent2), var(--accent3))';
+                } else {
+                    levelFill.style.background = 'linear-gradient(90deg, var(--accent), var(--accent2))';
+                }
+            }
+
+            function stopLevelMeter() {
+                cancelAnimationFrame(levelFrame);
+                if (levelStream) { levelStream.getTracks().forEach(t => t.stop()); levelStream = null; }
+                if (levelCtx) { levelCtx.close(); levelCtx = null; }
+                levelFill.style.width = '0%';
+            }
+
+            deviceSelect.addEventListener('change', startLevelMeter);
+
+            // ── Test button: request permission + start level meter ──
+            document.getElementById('btn-test-audio').addEventListener('click', () => {
+                startLevelMeter();
+            });
+
+            populateDevices();
+
+            // ── Guide panel toggle ──
+            const guideToggle = document.getElementById('guide-toggle');
+            const guideBody = document.getElementById('guide-body');
+            const guideChevron = document.getElementById('guide-chevron');
+            const guidePanel = document.getElementById('guide-panel');
+
+            guideToggle.addEventListener('click', () => {
+                const isOpen = guideBody.classList.toggle('open');
+                guideChevron.style.transform = isOpen ? 'rotate(180deg)' : 'rotate(0deg)';
+            });
+
+            // ── Tab switcher ──
+            document.querySelectorAll('.guide-tab').forEach(tab => {
+                tab.addEventListener('click', () => {
+                    document.querySelectorAll('.guide-tab').forEach(t => t.classList.remove('active'));
+                    document.querySelectorAll('.guide-content').forEach(c => c.classList.remove('active'));
+                    tab.classList.add('active');
+                    document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+                });
+            });
+
+            // ── Speech Recognition ──
+            function createRecognition() {
+                recognition = new SpeechRecognition();
+                recognition.lang = langSelect.value;
+                recognition.continuous = continuousToggle.checked;
+                recognition.interimResults = interimToggle.checked;
+                recognition.maxAlternatives = 1;
+
+                recognition.onstart = () => {
+                    isListening = true;
+                    lastResultTime = Date.now();
+                    setStatus('listening', 'Listening…');
+                    box.classList.add('active');
+                    placeholder.style.display = 'none';
+                    bars.forEach(b => b.classList.add('active'));
+                    if (!micStream) startAudioVisualizer();
+                    // Proactively abort+restart every 9s — before Chrome's random timeout
+                    clearTimeout(sessionTimer);
+                    sessionTimer = setTimeout(() => {
+                        if (isListening && recognition) {
+                            try { recognition.abort(); } catch (_) { }
+                        }
+                    }, 9000);
+                };
+
+                recognition.onresult = (e) => {
+                    lastResultTime = Date.now(); // feed the watchdog
+                    let interim = '';
+                    for (let i = e.resultIndex; i < e.results.length; i++) {
+                        const t = e.results[i][0].transcript;
+                        if (e.results[i].isFinal) {
+                            fullTranscript += t + ' ';
+                        } else {
+                            interim += t;
+                        }
+                    }
+                    finalText.textContent = fullTranscript;
+                    interimText.textContent = interimToggle.checked ? interim : '';
+                    updateCounts();
+                    // Only auto-scroll if user is already near the bottom
+                    // If they scrolled up to read/copy, don't interrupt them
+                    const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+                    if (nearBottom) box.scrollTop = box.scrollHeight;
+                };
+
+                recognition.onerror = (e) => {
+                    // Transient errors: let onend handle the restart
+                    if (e.error === 'no-speech') return;
+                    if (e.error === 'aborted') return;
+                    if (e.error === 'network') return;
+                    // Fatal errors (not-allowed, service-not-allowed, etc.): stop completely
+                    isListening = false;
+                    setStatus('error', `Error: ${e.error}`);
+                    stopListening();
+                };
+
+                recognition.onend = () => {
+                    clearTimeout(sessionTimer);
+                    if (isListening && continuousToggle.checked) {
+                        // 150ms is enough — we control when sessions end via the 9s timer
+                        setTimeout(() => {
+                            if (!isListening) return;
+                            try {
+                                createRecognition();
+                                recognition.start();
+                            } catch (_) {
+                                // Retry once after 800ms
+                                setTimeout(() => {
+                                    if (!isListening) return;
+                                    try {
+                                        createRecognition();
+                                        recognition.start();
+                                    } catch (err) {
+                                        // Both failed — watchdog will recover automatically
+                                        setStatus('listening', 'Recovering…');
+                                    }
+                                }, 800);
+                            }
+                        }, 150);
+                    } else {
+                        stopListening();
+                    }
+                };
+            }
+
+            function startListening() {
+                lastResultTime = Date.now();
+                startLevelMeter();
+                setTimeout(refreshDeviceLabels, 1000);
+                createRecognition();
+                recognition.start();
+                btnStart.disabled = true;
+                btnStop.disabled = false;
+                // Watchdog: every 5s check if recognition is stuck
+                clearInterval(watchdogTimer);
+                watchdogTimer = setInterval(() => {
+                    if (!isListening) return;
+                    const silentFor = Date.now() - lastResultTime;
+                    // If no results for 20s, recognition is likely frozen — force restart
+                    if (silentFor > 20000) {
+                        lastResultTime = Date.now(); // reset so watchdog doesn't loop
+                        try { recognition.abort(); } catch (_) { }
+                        setTimeout(() => {
+                            if (!isListening) return;
+                            try { createRecognition(); recognition.start(); } catch (_) { }
+                        }, 300);
+                    }
+                }, 5000);
+            }
+
+            function stopListening() {
+                isListening = false;
+                clearTimeout(sessionTimer);
+                clearInterval(watchdogTimer);
+                if (recognition) recognition.abort();
+                btnStart.disabled = false;
+                btnStop.disabled = true;
+                setStatus('idle', 'Stopped');
+                box.classList.remove('active');
+                bars.forEach(b => b.classList.remove('active'));
+                bars.forEach(b => b.style.height = '4px');
+                stopAudioVisualizer();
+                interimText.textContent = '';
+            }
+
+            function setStatus(state, text) {
+                statusDot.className = 'status-dot';
+                if (state === 'listening') statusDot.classList.add('listening');
+                if (state === 'error') statusDot.classList.add('error');
+                statusTxt.textContent = text;
+            }
+
+            function updateCounts() {
+                const text = fullTranscript.trim();
+                const words = text ? text.split(/\s+/).length : 0;
+                wordCount.textContent = `${words} word${words !== 1 ? 's' : ''}`;
+                charCount.textContent = `${text.length} chars`;
+            }
+
+            // ── Waveform Visualizer ──
+            function startAudioVisualizer() {
+                try {
+                    const deviceId = deviceSelect.value;
+                    const constraints = { audio: deviceId ? { deviceId: { exact: deviceId } } : true };
+                    navigator.mediaDevices.getUserMedia(constraints).then(stream => {
+                        micStream = stream;
+                        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                        analyser = audioCtx.createAnalyser();
+                        analyser.fftSize = 64;
+                        const src = audioCtx.createMediaStreamSource(stream);
+                        src.connect(analyser);
+                        dataArray = new Uint8Array(analyser.frequencyBinCount);
+                        drawBars();
+                    }).catch(() => { });
+                } catch (e) { }
+            }
+
+            function drawBars() {
+                if (!isListening) return;
+                analyser.getByteFrequencyData(dataArray);
+                bars.forEach((bar, i) => {
+                    const val = dataArray[i % dataArray.length] || 0;
+                    const h = Math.max(4, (val / 255) * 52);
+                    bar.style.height = h + 'px';
+                });
+                animFrame = requestAnimationFrame(drawBars);
+            }
+
+            function stopAudioVisualizer() {
+                cancelAnimationFrame(animFrame);
+                if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+                if (audioCtx) { audioCtx.close(); audioCtx = null; }
+            }
+
+            function showToast(msg) {
+                toast.textContent = msg;
+                toast.classList.add('show');
+                setTimeout(() => toast.classList.remove('show'), 2000);
+            }
+
+            btnStart.addEventListener('click', startListening);
+            btnStop.addEventListener('click', () => { isListening = false; stopListening(); });
+
+            btnClear.addEventListener('click', () => {
+                fullTranscript = '';
+                finalText.textContent = '';
+                interimText.textContent = '';
+                placeholder.style.display = '';
+                updateCounts();
+            });
+
+            btnCopy.addEventListener('click', () => {
+                if (!fullTranscript.trim()) { showToast('Nothing to copy'); return; }
+                const text = fullTranscript.trim();
+                const words = text.split(/\s+/).length;
+                navigator.clipboard.writeText(text).then(() => showToast(`Copied ${words} words!`));
+            });
+        }
+    </script>
+</body>
+
+</html>
